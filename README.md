@@ -15,9 +15,17 @@ Early scaffold. Implemented so far:
   handling RFC 2132 option-overload and RFC 3396 long-option concatenation.
 - `oxipd-net::checksum` — RFC 1071 Internet checksum + the IPv4/UDP pseudo-header
   variants needed for the pre-address-bind raw-socket DHCP path.
+- `oxipd-net::netlink` — an async `rtnetlink` wrapper: link lookup/up-down, address
+  add/del/dump, route add/del/dump, and a merged link/address/route/neighbour
+  multicast event stream. Verified against the live kernel (`cargo run -p oxipd-net
+  --example dump_links` correctly dumps `lo`'s link info and addresses).
+- `oxipd-net::packet` — a non-blocking `AF_PACKET`/`SOCK_RAW` socket bound to one
+  interface + one EtherType (no kernel BPF filter — see the module docs for why),
+  plus Ethernet framing helpers. Verified to fail cleanly with `EPERM` when run
+  without `CAP_NET_RAW` (`cargo run -p oxipd-net --example try_raw_socket`).
 
-Everything else (netlink integration, privilege separation, the DHCPv4/DHCPv6/ARP/
-IPv4LL/IPv6-ND state machines, the control socket, config/CLI) is not implemented yet.
+Everything else (privilege separation, the DHCPv4/DHCPv6/ARP/IPv4LL/IPv6-ND state
+machines, the control socket, config/CLI) is not implemented yet.
 
 ## Layout
 

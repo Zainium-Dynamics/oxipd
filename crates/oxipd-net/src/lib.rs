@@ -1,7 +1,9 @@
 //! Linux network integration: rtnetlink client, raw `AF_PACKET`/ICMPv6
 //! sockets, and checksum helpers.
 //!
-//! Only [`checksum`] is implemented so far (M1 milestone in progress); the
-//! netlink and raw-socket modules land next.
+//! The ICMPv6 raw-socket helper (needed for IPv6 Router Solicitation/
+//! Advertisement in M4) is not implemented yet.
 
 pub mod checksum;
+pub mod netlink;
+pub mod packet;

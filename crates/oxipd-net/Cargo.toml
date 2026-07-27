@@ -6,4 +6,13 @@ license.workspace = true
 description = "Netlink client, raw AF_PACKET/ICMPv6 sockets, and checksum utilities (Linux only)"
 
 [dependencies]
+# Pinned to match the version rtnetlink 0.21 depends on internally, so the
+# message types we build (RouteMessage, AddressMessage, ...) are the exact
+# same types its Handle methods expect.
+futures = "0.3.33"
+netlink-packet-route = "=0.30.0"
+netlink-sys = "0.8.8"
+rtnetlink = "0.21.0"
 thiserror = { workspace = true }
+tokio = { workspace = true }
+libc = { workspace = true }
