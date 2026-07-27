@@ -1,0 +1,9 @@
+[package]
+name = "oxipd-privsep"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Privilege-separation IPC framework between the unprivileged engine and the privileged helper (M2, not yet implemented)"
+
+[dependencies]
+thiserror = { workspace = true }

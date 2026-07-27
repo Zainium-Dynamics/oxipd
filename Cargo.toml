@@ -1,0 +1,65 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/oxipd-proto",
+    "crates/oxipd-net",
+    "crates/oxipd-privsep",
+    "crates/oxipd-config",
+    "crates/oxipd-core",
+    "crates/oxipd-ctl",
+    ".",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "BSD-2-Clause"
+repository = "https://github.com/oxipd/oxipd"
+
+[workspace.dependencies]
+oxipd-proto = { path = "crates/oxipd-proto" }
+oxipd-net = { path = "crates/oxipd-net" }
+oxipd-privsep = { path = "crates/oxipd-privsep" }
+oxipd-config = { path = "crates/oxipd-config" }
+oxipd-core = { path = "crates/oxipd-core" }
+oxipd-ctl = { path = "crates/oxipd-ctl" }
+
+tokio = { version = "1", features = ["rt", "net", "time", "signal", "macros", "sync", "io-util"] }
+libc = "0.2"
+thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+rand = "0.8"
+sha2 = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+clap = { version = "4", features = ["derive"] }
+
+[package]
+name = "oxipd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "A Rust DHCPv4/DHCPv6/IPv6-RA client daemon for Linux"
+
+[[bin]]
+name = "oxipd"
+path = "src/main.rs"
+
+[[bin]]
+name = "oxipdctl"
+path = "src/bin/oxipdctl.rs"
+
+[dependencies]
+oxipd-proto.workspace = true
+oxipd-net.workspace = true
+oxipd-privsep.workspace = true
+oxipd-config.workspace = true
+oxipd-core.workspace = true
+oxipd-ctl.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true
+anyhow = "1"

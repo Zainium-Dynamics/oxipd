@@ -1,0 +1,9 @@
+[package]
+name = "oxipd-net"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Netlink client, raw AF_PACKET/ICMPv6 sockets, and checksum utilities (Linux only)"
+
+[dependencies]
+thiserror = { workspace = true }

@@ -1,0 +1,11 @@
+[package]
+name = "oxipd-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "State machines: DHCPv4, ARP, IPv4LL, IPv6 ND/SLAAC, DHCPv6, route table (M3-M5, not yet implemented)"
+
+[dependencies]
+oxipd-proto = { workspace = true }
+oxipd-net = { workspace = true }
+thiserror = { workspace = true }

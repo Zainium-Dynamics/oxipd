@@ -1,0 +1,11 @@
+[package]
+name = "oxipd-proto"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Pure wire-format codecs for DHCPv4, DHCPv6, ARP, and IPv6 ND/RA options (no I/O)"
+
+[dependencies]
+thiserror = { workspace = true }
+
+[dev-dependencies]

@@ -1,0 +1,9 @@
+[package]
+name = "oxipd-config"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "CLI + TOML config parsing and the well-known DHCP/ND option tables (M7, not yet implemented)"
+
+[dependencies]
+serde = { workspace = true }
