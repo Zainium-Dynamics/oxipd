@@ -423,6 +423,13 @@ impl MessageBuilder {
         self.ciaddr = v;
         self
     }
+    /// Set `yiaddr` ("your" address) — only ever meaningful on a server
+    /// reply; oxipd's own client-side messages never set this, but it's
+    /// needed to build realistic fixtures in tests.
+    pub fn yiaddr(&mut self, v: Ipv4Addr) -> &mut Self {
+        self.yiaddr = v;
+        self
+    }
     pub fn chaddr(&mut self, mac: &[u8]) -> &mut Self {
         self.hlen = mac.len().min(CHADDR_LEN) as u8;
         self.chaddr = [0; CHADDR_LEN];

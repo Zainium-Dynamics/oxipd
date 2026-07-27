@@ -5,6 +5,7 @@
 
 pub mod fsm;
 pub mod lease;
+pub mod message;
 pub mod timing;
 
 pub use fsm::{Action, Dhcp4Fsm, Event, State};
