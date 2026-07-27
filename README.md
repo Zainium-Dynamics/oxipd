@@ -23,9 +23,21 @@ Early scaffold. Implemented so far:
   interface + one EtherType (no kernel BPF filter — see the module docs for why),
   plus Ethernet framing helpers. Verified to fail cleanly with `EPERM` when run
   without `CAP_NET_RAW` (`cargo run -p oxipd-net --example try_raw_socket`).
+- `oxipd-privsep` — the privilege-separation IPC framework: a `SOCK_SEQPACKET` +
+  `SCM_RIGHTS` channel (`channel`), a tagged request/response protocol over it
+  (`proto`), a fork-based helper spawner (`spawn`), Linux-capability dropping
+  (`privileges`), and both the synchronous helper-side dispatch loop (`helper`)
+  and the async engine-side client (`client`). Verified end to end: forking the
+  helper, pinging it, and asking it to open a raw socket on the engine's behalf
+  all work over the real IPC channel (`cargo run -p oxipd-privsep --example
+  roundtrip`) — the `open_packet_socket` call correctly fails with `EPERM`
+  without `CAP_NET_RAW`, exactly like the `oxipd-net` example above, proving the
+  error propagates cleanly across the privilege boundary.
 
-Everything else (privilege separation, the DHCPv4/DHCPv6/ARP/IPv4LL/IPv6-ND state
-machines, the control socket, config/CLI) is not implemented yet.
+Everything else (the DHCPv4/DHCPv6/ARP/IPv4LL/IPv6-ND state machines, the
+control socket, config/CLI) is not implemented yet. Full uid-dropping while
+retaining capabilities (running the helper as non-root) needs root to test and
+is deferred — see `oxipd-privsep::privileges`'s module docs.
 
 ## Layout
 

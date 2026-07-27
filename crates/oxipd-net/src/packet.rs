@@ -69,6 +69,50 @@ pub fn parse_ethernet_frame(frame: &[u8]) -> Option<EthernetFrame<'_>> {
     })
 }
 
+/// Open and bind a raw `AF_PACKET`/`SOCK_RAW` socket, as a plain blocking
+/// syscall sequence with no tokio dependency. This is the half oxipd's
+/// privileged helper process calls directly (it has no reactor and
+/// shouldn't need one just to open a socket and hand off the fd) — see
+/// [`RawSocket::open`] for the tokio-wrapped, non-blocking version used
+/// once a socket is owned by the async engine process.
+pub fn open_raw_fd(ifindex: i32, ethertype: u16) -> Result<OwnedFd, Error> {
+    // SAFETY: constant, valid arguments; the raw fd is checked for -1
+    // immediately below before being wrapped in an OwnedFd.
+    let raw = unsafe {
+        libc::socket(
+            libc::AF_PACKET,
+            libc::SOCK_RAW | libc::SOCK_NONBLOCK | libc::SOCK_CLOEXEC,
+            i32::from(ethertype.to_be()),
+        )
+    };
+    if raw < 0 {
+        return Err(Error::Io(io::Error::last_os_error()));
+    }
+    // SAFETY: `raw` was just returned by socket(2) and validated above,
+    // and is not used again except through the OwnedFd.
+    let owned = unsafe { OwnedFd::from_raw_fd(raw) };
+
+    let mut addr: libc::sockaddr_ll = unsafe { mem::zeroed() };
+    addr.sll_family = libc::AF_PACKET as u16;
+    addr.sll_protocol = ethertype.to_be();
+    addr.sll_ifindex = ifindex;
+
+    // SAFETY: `addr` is a valid, fully-initialized sockaddr_ll of the
+    // correct size for bind(2).
+    let rc = unsafe {
+        libc::bind(
+            owned.as_raw_fd(),
+            &addr as *const libc::sockaddr_ll as *const libc::sockaddr,
+            mem::size_of::<libc::sockaddr_ll>() as libc::socklen_t,
+        )
+    };
+    if rc < 0 {
+        return Err(Error::Io(io::Error::last_os_error()));
+    }
+
+    Ok(owned)
+}
+
 /// A non-blocking `AF_PACKET`/`SOCK_RAW` socket bound to one interface and
 /// scoped to one EtherType.
 pub struct RawSocket {
@@ -82,42 +126,18 @@ impl RawSocket {
     ///
     /// Requires `CAP_NET_RAW` (or root); in oxipd's process model this is
     /// called from the privileged helper (see oxipd-privsep), which then
-    /// hands the bound fd to the unprivileged engine via `SCM_RIGHTS`.
+    /// hands the bound fd to the unprivileged engine via `SCM_RIGHTS` (see
+    /// [`Self::from_owned_fd`] for the engine side of that handoff).
     pub fn open(ifindex: i32, ethertype: u16) -> Result<Self, Error> {
-        // SAFETY: constant, valid arguments; the raw fd is checked for -1
-        // immediately below before being wrapped in an OwnedFd.
-        let raw = unsafe {
-            libc::socket(
-                libc::AF_PACKET,
-                libc::SOCK_RAW | libc::SOCK_NONBLOCK | libc::SOCK_CLOEXEC,
-                i32::from(ethertype.to_be()),
-            )
-        };
-        if raw < 0 {
-            return Err(Error::Io(io::Error::last_os_error()));
-        }
-        // SAFETY: `raw` was just returned by socket(2) and validated above,
-        // and is not used again except through the OwnedFd.
-        let owned = unsafe { OwnedFd::from_raw_fd(raw) };
+        let owned = open_raw_fd(ifindex, ethertype)?;
+        Self::from_owned_fd(owned, ifindex)
+    }
 
-        let mut addr: libc::sockaddr_ll = unsafe { mem::zeroed() };
-        addr.sll_family = libc::AF_PACKET as u16;
-        addr.sll_protocol = ethertype.to_be();
-        addr.sll_ifindex = ifindex;
-
-        // SAFETY: `addr` is a valid, fully-initialized sockaddr_ll of the
-        // correct size for bind(2).
-        let rc = unsafe {
-            libc::bind(
-                owned.as_raw_fd(),
-                &addr as *const libc::sockaddr_ll as *const libc::sockaddr,
-                mem::size_of::<libc::sockaddr_ll>() as libc::socklen_t,
-            )
-        };
-        if rc < 0 {
-            return Err(Error::Io(io::Error::last_os_error()));
-        }
-
+    /// Wrap an already-open-and-bound raw socket fd (e.g. one received
+    /// over oxipd-privsep's `SCM_RIGHTS` channel from the privileged
+    /// helper) for async use in this process. Must be called from within a
+    /// running tokio reactor.
+    pub fn from_owned_fd(owned: OwnedFd, ifindex: i32) -> Result<Self, Error> {
         Ok(RawSocket {
             fd: AsyncFd::new(owned)?,
             ifindex,
