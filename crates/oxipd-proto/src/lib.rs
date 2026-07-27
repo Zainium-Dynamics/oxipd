@@ -6,6 +6,7 @@
 //! (parsing attacker-controlled network input) trivially unit-testable and
 //! fuzzable in isolation from I/O and privilege concerns.
 
+pub mod arp;
 pub mod dhcpv4;
 
 pub use dhcpv4::{Message as Dhcpv4Message, MessageBuilder as Dhcpv4MessageBuilder};
