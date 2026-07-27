@@ -33,11 +33,27 @@ Early scaffold. Implemented so far:
   roundtrip`) — the `open_packet_socket` call correctly fails with `EPERM`
   without `CAP_NET_RAW`, exactly like the `oxipd-net` example above, proving the
   error propagates cleanly across the privilege boundary.
+- `oxipd-proto::arp` — Ethernet/IPv4 ARP packet codec (parse/build) plus RFC 5227
+  probe/announcement constructors.
+- `oxipd-core::arp` — the RFC 5227 probe/announce/defend engine (`ArpProbe`), with
+  the conflict-detection policy (`detects_conflict`) isolated as a pure, unit-tested
+  function independent of any socket.
+- `oxipd-core::ipv4ll` — RFC 3927 IPv4 Link-Local address selection: MAC-seeded,
+  deterministic picking within the valid `169.254.0.0/16` sub-range, plus the
+  probe-and-retry-with-backoff policy loop built on `ArpProbe`.
+- `oxipd-core::dhcp4` — the DHCPv4 client as a pure state machine (`Dhcp4Fsm`):
+  `handle(event) -> Vec<Action>`, covering DISCOVER/OFFER/REQUEST/ACK/NAK,
+  INIT-REBOOT, ARP-probing every (re)assignment, RENEW/REBIND/lease-expiry, and
+  RELEASE. Retransmit/NAK backoff and T1/T2 timing (`timing`) and DHCPACK lease
+  extraction (`lease`) are their own tested units. Kept free of any I/O by design
+  (see the module docs) so all 29 `oxipd-core` tests run instantly with no
+  network namespace.
 
-Everything else (the DHCPv4/DHCPv6/ARP/IPv4LL/IPv6-ND state machines, the
-control socket, config/CLI) is not implemented yet. Full uid-dropping while
-retaining capabilities (running the helper as non-root) needs root to test and
-is deferred — see `oxipd-privsep::privileges`'s module docs.
+Not yet implemented: the async "shell" that drives `Dhcp4Fsm` over real raw/UDP
+sockets and netlink (wiring `oxipd-net`/`oxipd-privsep` to the actions above),
+DHCPv6/IPv6-ND/SLAAC, the control socket, and config/CLI. Full uid-dropping while
+retaining capabilities (running the privsep helper as non-root) needs root to
+test and is deferred — see `oxipd-privsep::privileges`'s module docs.
 
 ## Layout
 

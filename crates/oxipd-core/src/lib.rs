@@ -2,4 +2,5 @@
 //! route table.
 
 pub mod arp;
+pub mod dhcp4;
 pub mod ipv4ll;
