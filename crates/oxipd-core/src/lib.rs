@@ -4,3 +4,5 @@
 pub mod arp;
 pub mod dhcp4;
 pub mod ipv4ll;
+pub mod ipv6;
+pub mod ipv6nd;
