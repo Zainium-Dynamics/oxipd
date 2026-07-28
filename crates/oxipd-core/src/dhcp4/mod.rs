@@ -3,11 +3,13 @@
 //! async "shell" that drives this over real sockets/netlink (see PLAN.md's
 //! M3 milestone) is the next increment.
 
+pub mod client;
 pub mod fsm;
 pub mod lease;
 pub mod message;
 pub mod raw_frame;
 pub mod timing;
 
+pub use client::Dhcp4Client;
 pub use fsm::{Action, Dhcp4Fsm, Event, State};
 pub use lease::Lease;
