@@ -2,7 +2,7 @@
 //! DHCPv4 needs to hand-build packets before an address is configured (see
 //! oxipd-core::dhcp4's pre-bind raw-socket path).
 
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 /// Fold `data` into a running ones'-complement sum. Call repeatedly (e.g.
 /// once for a pseudo-header, once for the real payload) before [`finish`].
@@ -48,6 +48,20 @@ pub fn udp_checksum_v4(src: Ipv4Addr, dst: Ipv4Addr, udp_segment: &[u8]) -> u16 
         0 => 0xffff,
         other => other,
     }
+}
+
+/// ICMPv6 checksum (RFC 4443 §2.3) over an IPv6 pseudo-header (RFC 8200
+/// §8.1) + the ICMPv6 message (`segment`'s own checksum field must be
+/// zeroed by the caller first). Unlike UDP/IPv4, a zero result is sent as
+/// literal zero here — RFC 4443 has no "0 means no checksum" carve-out.
+pub fn icmp6_checksum_v6(src: Ipv6Addr, dst: Ipv6Addr, segment: &[u8]) -> u16 {
+    let mut pseudo = [0u8; 40];
+    pseudo[0..16].copy_from_slice(&src.octets());
+    pseudo[16..32].copy_from_slice(&dst.octets());
+    pseudo[32..36].copy_from_slice(&(segment.len() as u32).to_be_bytes());
+    pseudo[39] = 58; // IPPROTO_ICMPV6
+
+    finish(partial_sum(&pseudo, partial_sum(segment, 0)))
 }
 
 #[cfg(test)]
@@ -113,5 +127,25 @@ mod tests {
         assert_eq!(finish(partial_sum(&pseudo, partial_sum(&segment, 0))), 0);
 
         assert_eq!(udp_checksum_v4(src, dst, &segment), 0xffff);
+    }
+
+    #[test]
+    fn icmp6_checksum_is_self_consistent() {
+        let src = Ipv6Addr::new(0xfe80, 0, 0, 0, 0, 0, 0, 1);
+        let dst = Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0, 2);
+
+        // Router Solicitation: type(133) code(0) checksum(2, zeroed) +
+        // 4 bytes reserved.
+        let mut segment = vec![133, 0, 0, 0, 0, 0, 0, 0];
+        let cs = icmp6_checksum_v6(src, dst, &segment);
+        segment[2..4].copy_from_slice(&cs.to_be_bytes());
+
+        let mut pseudo = [0u8; 40];
+        pseudo[0..16].copy_from_slice(&src.octets());
+        pseudo[16..32].copy_from_slice(&dst.octets());
+        pseudo[32..36].copy_from_slice(&(segment.len() as u32).to_be_bytes());
+        pseudo[39] = 58;
+        let verify = finish(partial_sum(&pseudo, partial_sum(&segment, 0)));
+        assert_eq!(verify, 0);
     }
 }

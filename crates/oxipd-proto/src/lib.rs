@@ -8,5 +8,6 @@
 
 pub mod arp;
 pub mod dhcpv4;
+pub mod ndp;
 
 pub use dhcpv4::{Message as Dhcpv4Message, MessageBuilder as Dhcpv4MessageBuilder};
