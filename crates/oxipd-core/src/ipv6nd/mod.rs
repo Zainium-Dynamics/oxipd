@@ -1,10 +1,15 @@
-//! Router Advertisement processing policy: the pure decisions
-//! `oxipd_proto::ndp::RouterAdvertisement` data feeds into, kept separate
-//! from the (not yet implemented) stateful router-list/prefix-lifecycle
-//! engine and the raw ICMPv6 socket I/O — same pure-core-first approach as
-//! `dhcp4`. This is the highest-logic-risk part of the IPv6 stack per
-//! PLAN.md's research (RA processing is "essentially its own small
-//! protocol stack"), so it's where the tests matter most.
+//! Router Advertisement processing: the pure decisions
+//! `oxipd_proto::ndp::RouterAdvertisement` data feeds into (this module),
+//! plus the stateful router-list/prefix-lifecycle engine built on top of
+//! them ([`router_list`]). The raw ICMPv6 socket I/O is a separate,
+//! not-yet-implemented layer — same pure-core-first approach as `dhcp4`.
+//! This is the highest-logic-risk part of the IPv6 stack per PLAN.md's
+//! research (RA processing is "essentially its own small protocol
+//! stack"), so it's where the tests matter most.
+
+pub mod router_list;
+
+pub use router_list::{RaEvent, Router, RouterList};
 
 /// RFC 4862 §5.5.3.e: a received prefix's valid lifetime must never be
 /// used to shorten an existing address's remaining lifetime below this
@@ -44,10 +49,14 @@ pub fn dhcp6_trigger(managed: bool, other_config: bool) -> Dhcp6Trigger {
 ///
 /// The rule exists so a single (possibly spoofed, possibly just
 /// misconfigured) RA can't abruptly expire an address: a lifetime
-/// decrease is only ever accepted down to a 2-hour floor per step, unless
-/// the address is already within that floor (in which case the received
-/// value — including a deliberate `0` to deprecate immediately — is
-/// honored, since there's nothing left to protect).
+/// decrease is only ever accepted down to a 2-hour floor per step. If the
+/// address is already within that floor, the update is ignored entirely
+/// (the existing `remaining` value is kept) rather than honoring a
+/// smaller — or zero — received value; the RFC's intent is that genuine
+/// deprecation happens gradually, as real time elapses between
+/// advertisements, not by a router's claim alone. The only way this
+/// function itself returns `0` is for a prefix with no prior sighting
+/// (`remaining_secs: None`) whose received valid lifetime already is `0`.
 pub fn effective_valid_lifetime(remaining_secs: Option<u32>, received_valid_lifetime_secs: u32) -> u32 {
     let Some(remaining) = remaining_secs else {
         return received_valid_lifetime_secs;
@@ -99,9 +108,10 @@ mod tests {
     }
 
     #[test]
-    fn already_within_floor_honors_the_received_value_verbatim() {
+    fn already_within_floor_ignores_further_shortening() {
         // remaining <= 2h: the RFC says ignore further shortening
-        // attempts by keeping `remaining`, even if the new value is 0.
+        // attempts by keeping `remaining` unchanged, even if the newly
+        // received value is smaller, or 0.
         assert_eq!(effective_valid_lifetime(Some(3600), 0), 3600);
         assert_eq!(effective_valid_lifetime(Some(7200), 100), 7200);
     }
