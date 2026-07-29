@@ -16,9 +16,9 @@ use std::net::IpAddr;
 use futures::{StreamExt, TryStreamExt};
 use netlink_packet_route::{
     address::{AddressAttribute, AddressMessage},
-    link::{LinkAttribute, LinkFlags, LinkMessage},
+    link::{AfSpecInet6, AfSpecUnspec, In6AddrGenMode, LinkAttribute, LinkFlags, LinkMessage},
     route::RouteMessage,
-    RouteNetlinkMessage,
+    AddressFamily, RouteNetlinkMessage,
 };
 use rtnetlink::packet_core::{NetlinkMessage, NetlinkPayload};
 use rtnetlink::{new_multicast_connection, Handle, LinkUnspec, MulticastGroup};
@@ -214,6 +214,25 @@ impl NetlinkClient {
             .set(LinkUnspec::new_with_index(index).down().build())
             .execute()
             .await?;
+        Ok(())
+    }
+
+    /// Set `IFLA_INET6_ADDR_GEN_MODE = NONE`, stopping the kernel from
+    /// generating its own link-local/SLAAC addresses on `index` so
+    /// `oxipd_core::ipv6nd` can own address generation and DAD timing
+    /// itself (matches dhcpcd's `if_disable_autolinklocal`). Combine with
+    /// `oxipd_net::sysctl::disable_kernel_autoconf` (which stops the
+    /// kernel's own RS/RA handling) for full manual control.
+    pub async fn disable_kernel_addr_gen(&self, index: u32) -> Result<(), Error> {
+        let mut message = LinkMessage::default();
+        message.header.index = index;
+        message.header.interface_family = AddressFamily::Unspec;
+        message
+            .attributes
+            .push(LinkAttribute::AfSpecUnspec(vec![AfSpecUnspec::Inet6(vec![
+                AfSpecInet6::AddrGenMode(In6AddrGenMode::None),
+            ])]));
+        self.handle.link().set(message).execute().await?;
         Ok(())
     }
 

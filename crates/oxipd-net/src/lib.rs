@@ -5,5 +5,7 @@
 //! Advertisement in M4) is not implemented yet.
 
 pub mod checksum;
+pub mod icmp6;
 pub mod netlink;
 pub mod packet;
+pub mod sysctl;
