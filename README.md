@@ -30,6 +30,5 @@ cargo run -p oxipd-core --example ipv6nd_client -- <ifname>
 ## More
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) - how the code is laid out
-- [PLAN.md](PLAN.md) - milestones and design decisions
 
 Linux only. License: BSD-2-Clause.

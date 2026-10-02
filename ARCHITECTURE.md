@@ -70,4 +70,4 @@ failure), RFC 7217 retries with a new counter; EUI-64 just drops the address.
 ## Not built yet
 
 DHCPv6 and prefix delegation, a route table module, config and CLI, control
-socket, hooks, lease persistence, systemd unit, seccomp. See `PLAN.md`.
+socket, hooks, lease persistence, systemd unit, seccomp.
