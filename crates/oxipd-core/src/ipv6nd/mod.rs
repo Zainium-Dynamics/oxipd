@@ -7,8 +7,10 @@
 //! research (RA processing is "essentially its own small protocol
 //! stack"), so it's where the tests matter most.
 
+pub mod client;
 pub mod router_list;
 
+pub use client::{IidScheme, Ipv6NdClient};
 pub use router_list::{RaEvent, Router, RouterList};
 
 /// RFC 4862 §5.5.3.e: a received prefix's valid lifetime must never be
@@ -57,11 +59,16 @@ pub fn dhcp6_trigger(managed: bool, other_config: bool) -> Dhcp6Trigger {
 /// advertisements, not by a router's claim alone. The only way this
 /// function itself returns `0` is for a prefix with no prior sighting
 /// (`remaining_secs: None`) whose received valid lifetime already is `0`.
-pub fn effective_valid_lifetime(remaining_secs: Option<u32>, received_valid_lifetime_secs: u32) -> u32 {
+pub fn effective_valid_lifetime(
+    remaining_secs: Option<u32>,
+    received_valid_lifetime_secs: u32,
+) -> u32 {
     let Some(remaining) = remaining_secs else {
         return received_valid_lifetime_secs;
     };
-    if received_valid_lifetime_secs > MIN_EXTENDED_VALID_LIFETIME_SECS || received_valid_lifetime_secs > remaining {
+    if received_valid_lifetime_secs > MIN_EXTENDED_VALID_LIFETIME_SECS
+        || received_valid_lifetime_secs > remaining
+    {
         received_valid_lifetime_secs
     } else if remaining <= MIN_EXTENDED_VALID_LIFETIME_SECS {
         remaining
@@ -118,7 +125,10 @@ mod tests {
 
     #[test]
     fn shortening_below_the_floor_is_clamped_to_two_hours() {
-        assert_eq!(effective_valid_lifetime(Some(10_000), 100), MIN_EXTENDED_VALID_LIFETIME_SECS);
+        assert_eq!(
+            effective_valid_lifetime(Some(10_000), 100),
+            MIN_EXTENDED_VALID_LIFETIME_SECS
+        );
     }
 
     #[test]
