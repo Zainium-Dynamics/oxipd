@@ -15,7 +15,7 @@ use std::net::IpAddr;
 
 use futures::{StreamExt, TryStreamExt};
 use netlink_packet_route::{
-    address::{AddressAttribute, AddressMessage},
+    address::{AddressAttribute, AddressFlags, AddressMessage, CacheInfo},
     link::{AfSpecInet6, AfSpecUnspec, In6AddrGenMode, LinkAttribute, LinkFlags, LinkMessage},
     route::RouteMessage,
     AddressFamily, RouteNetlinkMessage,
@@ -96,6 +96,13 @@ pub enum NetlinkEvent {
         address: IpAddr,
         prefix_len: u8,
     },
+    /// The kernel finished IPv6 DAD on this address and found a duplicate
+    /// (`IFA_F_DADFAILED`).
+    AddrDadFailed {
+        ifindex: u32,
+        address: IpAddr,
+        prefix_len: u8,
+    },
     RouteNew,
     RouteDel,
 }
@@ -107,6 +114,17 @@ fn addr_event(msg: AddressMessage, is_new: bool) -> Option<NetlinkEvent> {
         AddressAttribute::Address(addr) => Some(*addr),
         _ => None,
     })?;
+    let dad_failed = msg
+        .attributes
+        .iter()
+        .any(|a| matches!(a, AddressAttribute::Flags(f) if f.contains(AddressFlags::Dadfailed)));
+    if is_new && dad_failed {
+        return Some(NetlinkEvent::AddrDadFailed {
+            ifindex,
+            address,
+            prefix_len,
+        });
+    }
     Some(if is_new {
         NetlinkEvent::AddrNew {
             ifindex,
@@ -132,8 +150,12 @@ fn translate(msg: NetlinkMessage<RouteNetlinkMessage>) -> Option<NetlinkEvent> {
         }
         NetlinkPayload::InnerMessage(RouteNetlinkMessage::NewAddress(a)) => addr_event(a, true),
         NetlinkPayload::InnerMessage(RouteNetlinkMessage::DelAddress(a)) => addr_event(a, false),
-        NetlinkPayload::InnerMessage(RouteNetlinkMessage::NewRoute(_)) => Some(NetlinkEvent::RouteNew),
-        NetlinkPayload::InnerMessage(RouteNetlinkMessage::DelRoute(_)) => Some(NetlinkEvent::RouteDel),
+        NetlinkPayload::InnerMessage(RouteNetlinkMessage::NewRoute(_)) => {
+            Some(NetlinkEvent::RouteNew)
+        }
+        NetlinkPayload::InnerMessage(RouteNetlinkMessage::DelRoute(_)) => {
+            Some(NetlinkEvent::RouteDel)
+        }
         _ => None,
     }
 }
@@ -184,7 +206,12 @@ impl NetlinkClient {
     }
 
     pub async fn link_by_name(&self, name: &str) -> Result<LinkInfo, Error> {
-        let mut stream = self.handle.link().get().match_name(name.to_string()).execute();
+        let mut stream = self
+            .handle
+            .link()
+            .get()
+            .match_name(name.to_string())
+            .execute();
         match stream.try_next().await? {
             Some(msg) => Ok(link_info_from_message(msg)),
             None => Err(Error::LinkNotFound(name.to_string())),
@@ -229,9 +256,9 @@ impl NetlinkClient {
         message.header.interface_family = AddressFamily::Unspec;
         message
             .attributes
-            .push(LinkAttribute::AfSpecUnspec(vec![AfSpecUnspec::Inet6(vec![
-                AfSpecInet6::AddrGenMode(In6AddrGenMode::None),
-            ])]));
+            .push(LinkAttribute::AfSpecUnspec(vec![AfSpecUnspec::Inet6(
+                vec![AfSpecInet6::AddrGenMode(In6AddrGenMode::None)],
+            )]));
         self.handle.link().set(message).execute().await?;
         Ok(())
     }
@@ -239,7 +266,39 @@ impl NetlinkClient {
     /// Add an address (IPv4 or IPv6) to an interface. Broadcast/local NLAs
     /// for IPv4 are filled in automatically by `rtnetlink`'s builder.
     pub async fn add_addr(&self, index: u32, address: IpAddr, prefix_len: u8) -> Result<(), Error> {
-        self.handle.address().add(index, address, prefix_len).execute().await?;
+        self.handle
+            .address()
+            .add(index, address, prefix_len)
+            .execute()
+            .await?;
+        Ok(())
+    }
+
+    /// Add an address with an explicit `IFA_CACHEINFO` valid/preferred
+    /// lifetime, so the kernel itself enforces SLAAC/DHCP expiry instead
+    /// of the address being permanent until oxipd explicitly removes it
+    /// (matches dhcpcd's own reliance on kernel-enforced lifetimes).
+    pub async fn add_addr_with_lifetime(
+        &self,
+        index: u32,
+        address: IpAddr,
+        prefix_len: u8,
+        valid_secs: u32,
+        preferred_secs: u32,
+    ) -> Result<(), Error> {
+        let mut request = self
+            .handle
+            .address()
+            .add(index, address, prefix_len)
+            .replace();
+        let mut cache_info = CacheInfo::default();
+        cache_info.ifa_valid = valid_secs;
+        cache_info.ifa_preferred = preferred_secs;
+        request
+            .message_mut()
+            .attributes
+            .push(AddressAttribute::CacheInfo(cache_info));
+        request.execute().await?;
         Ok(())
     }
 
@@ -270,7 +329,12 @@ impl NetlinkClient {
 
     /// Dump every address currently configured on an interface.
     pub async fn addrs(&self, index: u32) -> Result<Vec<(IpAddr, u8)>, Error> {
-        let mut stream = self.handle.address().get().set_link_index_filter(index).execute();
+        let mut stream = self
+            .handle
+            .address()
+            .get()
+            .set_link_index_filter(index)
+            .execute();
         let mut out = Vec::new();
         while let Some(msg) = stream.try_next().await? {
             let prefix_len = msg.header.prefix_len;
@@ -294,6 +358,38 @@ impl NetlinkClient {
     }
 
     pub async fn del_route(&self, route: RouteMessage) -> Result<(), Error> {
+        self.handle.route().del(route).execute().await?;
+        Ok(())
+    }
+
+    /// Install (or replace) an IPv6 default route via `gateway`, tagged
+    /// with the RA route protocol so it's recognisable as ours.
+    pub async fn add_default_route_v6(
+        &self,
+        index: u32,
+        gateway: std::net::Ipv6Addr,
+    ) -> Result<(), Error> {
+        let route = RouteMessageBuilder::<std::net::Ipv6Addr>::new()
+            .destination_prefix(std::net::Ipv6Addr::UNSPECIFIED, 0)
+            .gateway(gateway)
+            .output_interface(index)
+            .protocol(RouteProtocol::Ra)
+            .build();
+        self.handle.route().add(route).replace().execute().await?;
+        Ok(())
+    }
+
+    pub async fn del_default_route_v6(
+        &self,
+        index: u32,
+        gateway: std::net::Ipv6Addr,
+    ) -> Result<(), Error> {
+        let route = RouteMessageBuilder::<std::net::Ipv6Addr>::new()
+            .destination_prefix(std::net::Ipv6Addr::UNSPECIFIED, 0)
+            .gateway(gateway)
+            .output_interface(index)
+            .protocol(RouteProtocol::Ra)
+            .build();
         self.handle.route().del(route).execute().await?;
         Ok(())
     }

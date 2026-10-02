@@ -2,9 +2,7 @@
 //! (derived straight from the interface's MAC) and RFC 7217 stable-private
 //! addressing (derived from a persisted secret, so the address is stable
 //! per-prefix/per-interface but doesn't leak the MAC to the network like
-//! EUI-64 does). RFC 4941 temporary/privacy addresses (which additionally
-//! need a persisted desync factor and periodic regeneration) are a
-//! follow-up increment.
+//! EUI-64 does), and random RFC 8981 temporary-address identifiers.
 
 use std::net::Ipv6Addr;
 
@@ -15,7 +13,16 @@ pub type Iid = [u8; 8];
 /// RFC 4291 Appendix A / RFC 2464 §4: insert `FF:FE` in the middle of the
 /// MAC and flip the universal/local bit.
 pub fn eui64_iid(mac: [u8; 6]) -> Iid {
-    [mac[0] ^ 0x02, mac[1], mac[2], 0xff, 0xfe, mac[3], mac[4], mac[5]]
+    [
+        mac[0] ^ 0x02,
+        mac[1],
+        mac[2],
+        0xff,
+        0xfe,
+        mac[3],
+        mac[4],
+        mac[5],
+    ]
 }
 
 /// RFC 7217 §5: `F(prefix, net_iface, network_id, dad_counter, secret_key)`,
@@ -23,7 +30,13 @@ pub fn eui64_iid(mac: [u8; 6]) -> Iid {
 /// disambiguates interfaces sharing the same prefix (dhcpcd uses the
 /// interface name); `network_id` further disambiguates by attachment
 /// point (e.g. Wi-Fi SSID) when relevant, or is empty otherwise.
-pub fn rfc7217_iid(prefix: Ipv6Addr, net_iface: &[u8], network_id: &[u8], dad_counter: u8, secret_key: &[u8]) -> Iid {
+pub fn rfc7217_iid(
+    prefix: Ipv6Addr,
+    net_iface: &[u8],
+    network_id: &[u8],
+    dad_counter: u8,
+    secret_key: &[u8],
+) -> Iid {
     let mut hasher = Sha256::new();
     hasher.update(&prefix.octets()[..8]); // network part only (first 64 bits)
     hasher.update(net_iface);
@@ -47,6 +60,18 @@ pub fn is_reserved_iid(iid: &Iid) -> bool {
     iid[..7] == [0xff; 7] && iid[7] >= 0x80
 }
 
+/// RFC 8981 temporary interface identifier: random, with the
+/// universal/local bit cleared, and never an RFC 5453 reserved value.
+pub fn temporary_iid() -> Iid {
+    loop {
+        let mut iid: Iid = rand::random();
+        iid[0] &= !0x02;
+        if !is_reserved_iid(&iid) {
+            return iid;
+        }
+    }
+}
+
 /// Combine a received prefix (only its network part, first 64 bits, is
 /// used — SLAAC always operates on /64s) with an interface identifier.
 pub fn make_address(prefix: Ipv6Addr, iid: Iid) -> Ipv6Addr {
@@ -58,6 +83,15 @@ pub fn make_address(prefix: Ipv6Addr, iid: Iid) -> Ipv6Addr {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn temporary_iid_is_local_and_not_reserved() {
+        for _ in 0..100 {
+            let iid = temporary_iid();
+            assert_eq!(iid[0] & 0x02, 0);
+            assert!(!is_reserved_iid(&iid));
+        }
+    }
 
     #[test]
     fn eui64_flips_universal_local_bit_and_inserts_fffe() {
@@ -72,7 +106,10 @@ mod tests {
         let mac = [0x00, 0x0c, 0x29, 0xaa, 0xbb, 0xcc];
         let prefix = Ipv6Addr::new(0x2001, 0xdb8, 0, 1, 0, 0, 0, 0);
         let addr = make_address(prefix, eui64_iid(mac));
-        assert_eq!(addr, Ipv6Addr::new(0x2001, 0xdb8, 0, 1, 0x020c, 0x29ff, 0xfeaa, 0xbbcc));
+        assert_eq!(
+            addr,
+            Ipv6Addr::new(0x2001, 0xdb8, 0, 1, 0x020c, 0x29ff, 0xfeaa, 0xbbcc)
+        );
     }
 
     #[test]
@@ -99,9 +136,17 @@ mod tests {
     #[test]
     fn reserved_iids_are_flagged() {
         assert!(is_reserved_iid(&[0u8; 8]));
-        assert!(is_reserved_iid(&[0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x80]));
-        assert!(is_reserved_iid(&[0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]));
-        assert!(!is_reserved_iid(&[0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f]));
-        assert!(!is_reserved_iid(&eui64_iid([0x00, 0x0c, 0x29, 0xaa, 0xbb, 0xcc])));
+        assert!(is_reserved_iid(&[
+            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x80
+        ]));
+        assert!(is_reserved_iid(&[
+            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff
+        ]));
+        assert!(!is_reserved_iid(&[
+            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f
+        ]));
+        assert!(!is_reserved_iid(&eui64_iid([
+            0x00, 0x0c, 0x29, 0xaa, 0xbb, 0xcc
+        ])));
     }
 }
